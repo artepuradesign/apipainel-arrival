@@ -435,6 +435,12 @@ try {
         exit();
     }
     
+    // Upload de BO (PDF Boletim de Ocorrência)
+    if ($endpoint === '/upload-bo' || $endpoint === '/upload-bo.php') {
+        include __DIR__ . '/upload-bo.php';
+        exit();
+    }
+    
     // Upload de fotos
     if ($endpoint === '/enviar-foto.php' || $endpoint === '/enviar-foto') {
         include __DIR__ . '/enviar-foto.php';

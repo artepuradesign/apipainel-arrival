@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { FileText, Copy, SearchX, Plus, ExternalLink, Trash2 } from 'lucide-react';
+import { FileText, Copy, SearchX, Plus, ExternalLink, Trash2, Upload, CheckCircle, Loader2 } from 'lucide-react';
 import { baseBoService, BaseBo, CreateBaseBo } from '@/services/baseBoService';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from "sonner";
@@ -22,6 +22,9 @@ const BoletimOcorrenciaBoSection: React.FC<BoletimOcorrenciaBoSectionProps> = ({
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadedFile, setUploadedFile] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { isSupport } = useAuth();
 
   const [form, setForm] = useState<Partial<CreateBaseBo>>({
@@ -79,6 +82,37 @@ const BoletimOcorrenciaBoSection: React.FC<BoletimOcorrenciaBoSectionProps> = ({
     toast.success('Dados de boletins copiados!');
   };
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.type !== 'application/pdf') {
+      toast.error('Apenas arquivos PDF são aceitos');
+      return;
+    }
+
+    if (!form.numero_ano) {
+      toast.error('Preencha o campo Nº/Ano antes de enviar o arquivo');
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const result = await baseBoService.uploadPdf(file, form.numero_ano);
+      if (result.success && result.data) {
+        setForm(prev => ({ ...prev, bo_link: result.data!.bo_link }));
+        setUploadedFile(result.data.file_name);
+        toast.success(`Arquivo ${result.data.file_name} enviado com sucesso!`);
+      } else {
+        toast.error(result.error || 'Erro ao enviar arquivo');
+      }
+    } catch (error) {
+      toast.error('Erro ao enviar arquivo PDF');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const handleSave = async () => {
     if (!form.numero_ano) {
       toast.error('Nº/Ano é obrigatório');
@@ -91,6 +125,7 @@ const BoletimOcorrenciaBoSection: React.FC<BoletimOcorrenciaBoSectionProps> = ({
         toast.success('Boletim de ocorrência cadastrado!');
         setModalOpen(false);
         setForm({ cpf_id: cpfId, numero_ano: '', unidade: '', data_fato: '', data_registro: '', natureza: '', bo_link: '' });
+        setUploadedFile(null);
         await loadBoletins();
       } else {
         toast.error(result.error || 'Erro ao cadastrar');
@@ -326,15 +361,50 @@ const BoletimOcorrenciaBoSection: React.FC<BoletimOcorrenciaBoSectionProps> = ({
               />
             </div>
             <div>
-              <Label>BO Link (nome do arquivo PDF sem extensão)</Label>
-              <Input
-                placeholder="Ex: 775821"
-                value={form.bo_link || ''}
-                onChange={e => setForm(prev => ({ ...prev, bo_link: e.target.value }))}
+              <Label>Upload do PDF do Boletim</Label>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="application/pdf"
+                onChange={handleFileUpload}
+                className="hidden"
               />
-              <p className="text-xs text-muted-foreground mt-1">
-                O arquivo PDF deve estar na pasta <code>/bo/</code> do servidor. Ex: <code>775821.pdf</code>
-              </p>
+              <div className="flex items-center gap-2 mt-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading || !form.numero_ano}
+                  className="gap-2"
+                >
+                  {uploading ? (
+                    <><Loader2 className="h-4 w-4 animate-spin" /> Enviando...</>
+                  ) : (
+                    <><Upload className="h-4 w-4" /> Selecionar PDF</>
+                  )}
+                </Button>
+                {uploadedFile && (
+                  <span className="flex items-center gap-1 text-xs text-success">
+                    <CheckCircle className="h-3 w-3" />
+                    {uploadedFile}
+                  </span>
+                )}
+              </div>
+              {!form.numero_ano && (
+                <p className="text-xs text-warning mt-1">
+                  Preencha o Nº/Ano primeiro para habilitar o upload
+                </p>
+              )}
+            </div>
+            <div>
+              <Label>BO Link (preenchido automaticamente)</Label>
+              <Input
+                placeholder="Será preenchido após o upload"
+                value={form.bo_link || ''}
+                disabled
+                className="bg-muted"
+              />
             </div>
           </div>
           <DialogFooter>

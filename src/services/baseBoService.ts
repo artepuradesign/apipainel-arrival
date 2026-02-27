@@ -34,6 +34,24 @@ class BaseBoService {
     };
   }
 
+  private getAuthHeader() {
+    const token = cookieUtils.get('session_token') || cookieUtils.get('api_session_token');
+    return { 'Authorization': `Bearer ${token}` };
+  }
+
+  async uploadPdf(file: File, numeroAno: string): Promise<{ success: boolean; data?: { bo_link: string; file_name: string }; error?: string }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('numero_ano', numeroAno);
+
+    const response = await fetch(`${API_BASE_URL}/upload-bo`, {
+      method: 'POST',
+      headers: this.getAuthHeader(),
+      body: formData
+    });
+    return response.json();
+  }
+
   async getByCpfId(cpfId: number): Promise<{ success: boolean; data?: BaseBo[]; total?: number }> {
     const response = await fetch(`${API_BASE_URL}/base-bo/cpf/${cpfId}`, {
       headers: this.getHeaders()
