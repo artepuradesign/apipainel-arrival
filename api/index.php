@@ -368,6 +368,12 @@ try {
         exit();
     }
     
+    // Base BO - CRUD completo para base_bo
+    if (strpos($endpoint, '/base-bo') === 0) {
+        include __DIR__ . '/src/routes/base_bo.php';
+        exit();
+    }
+    
     // Base CNPJ MEI - CRUD completo para base_cnpj_mei
     if (strpos($endpoint, '/base-cnpj-mei') !== false) {
         include __DIR__ . '/routes/base-cnpj-mei.php';
