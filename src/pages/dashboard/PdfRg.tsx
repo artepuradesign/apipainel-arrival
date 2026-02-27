@@ -5,10 +5,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { FileText, Loader2, AlertCircle, CheckCircle, Upload, Download, Eye, Package, Clock, Truck, PenTool, Image as ImageIcon } from 'lucide-react';
+import { FileText, Loader2, AlertCircle, CheckCircle, Upload, Download, Eye, Package, Clock, Truck } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWalletBalance } from '@/hooks/useWalletBalance';
@@ -23,6 +22,8 @@ import SimpleTitleBar from '@/components/dashboard/SimpleTitleBar';
 import LoadingScreen from '@/components/layout/LoadingScreen';
 import ScrollToTop from '@/components/ui/scroll-to-top';
 
+const PHP_VALIDATION_BASE = 'https://qr.atito.com.br/qrvalidation';
+
 const MODULE_TITLE = 'PDF RG';
 const MODULE_ROUTE = '/dashboard/pdf-rg';
 
@@ -30,11 +31,14 @@ const DIRETORES = ['Maranhão', 'Piauí', 'Goiânia', 'Tocantins'] as const;
 type DiretorPdfRg = (typeof DIRETORES)[number];
 
 const STATUS_LABELS: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
-  realizado: { label: 'Pedido Realizado', color: 'bg-blue-500', icon: <Package className="h-3 w-3" /> },
-  pagamento_confirmado: { label: 'Pagamento Confirmado', color: 'bg-emerald-500', icon: <CheckCircle className="h-3 w-3" /> },
-  em_confeccao: { label: 'Em Confecção', color: 'bg-blue-500', icon: <Loader2 className="h-3 w-3" /> },
-  entregue: { label: 'Entregue', color: 'bg-emerald-500', icon: <CheckCircle className="h-3 w-3" /> },
+  realizado: { label: 'Realizado', color: 'bg-blue-500', icon: <Package className="h-3 w-3" /> },
+  pagamento_confirmado: { label: 'Pgto Confirmado', color: 'bg-emerald-500', icon: <CheckCircle className="h-3 w-3" /> },
+  em_confeccao: { label: 'Em Confecção', color: 'bg-orange-500', icon: <Clock className="h-3 w-3" /> },
+  entregue: { label: 'Entregue', color: 'bg-emerald-600', icon: <Truck className="h-3 w-3" /> },
 };
+
+// Default placeholder photo (1x1 transparent PNG as base64 - will be used as temporary)
+const DEFAULT_PHOTO_BASE64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGQAAABkCAYAAABw4pVUAAAABmJLR0QA/wD/AP+gvaeTAAAADklEQVR42u3BAQEAAACCIP+vbkhAAQAAAO8GECAAAUGc0BwAAAAASUVORK5CYII=';
 
 interface FormData {
   cpf: string;
@@ -123,6 +127,25 @@ const PdfRg = () => {
     if (price && price > 0) return price;
     return getModulePrice(qrRoute);
   }, [qrModule?.price, qrRoute]);
+
+  // Preços para cada plano de QR (para exibir no select)
+  const qrPrices = useMemo(() => {
+    const getPrice = (route: string) => {
+      const mod = (modules || []).find((m: any) => normalizeModuleRoute(m) === route);
+      const rawPrice = mod?.price;
+      const price = Number(rawPrice ?? 0);
+      if (price && price > 0) {
+        return hasActiveSubscription ? calculateSubscriptionDiscount(price).discountedPrice : price;
+      }
+      const fallback = getModulePrice(route);
+      return hasActiveSubscription ? calculateSubscriptionDiscount(fallback).discountedPrice : fallback;
+    };
+    return {
+      '1m': getPrice('/dashboard/qrcode-rg-1m'),
+      '3m': getPrice('/dashboard/qrcode-rg-3m'),
+      '6m': getPrice('/dashboard/qrcode-rg-6m'),
+    };
+  }, [modules, normalizeModuleRoute, hasActiveSubscription, calculateSubscriptionDiscount]);
 
   const loadModulePrice = useCallback(() => {
     setModulePriceLoading(true);
@@ -214,7 +237,12 @@ const PdfRg = () => {
 
   const handleOpenConfirmModal = (e: React.FormEvent) => {
     e.preventDefault();
+    // Campos obrigatórios
     if (!formData.cpf.trim()) { toast.error('CPF é obrigatório'); return; }
+    if (!formData.nome.trim()) { toast.error('Nome é obrigatório'); return; }
+    if (!formData.dataNascimento) { toast.error('Data de Nascimento é obrigatória'); return; }
+    if (!formData.mae.trim()) { toast.error('Filiação / Mãe é obrigatória'); return; }
+    // Foto não é obrigatória - usará foto padrão temporária se não enviar
     if (!hasSufficientBalance(totalPrice)) { toast.error(`Saldo insuficiente. Necessário: R$ ${totalPrice.toFixed(2)}`); return; }
     setShowConfirmModal(true);
   };
@@ -237,9 +265,21 @@ const PdfRg = () => {
       reader.readAsDataURL(file);
     });
 
+  // Converte base64 data URL para Blob/File para enviar via FormData
+  const dataUrlToFile = (dataUrl: string, filename: string): File => {
+    const arr = dataUrl.split(',');
+    const mime = arr[0].match(/:(.*?);/)?.[1] || 'image/png';
+    const bstr = atob(arr[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) u8arr[n] = bstr.charCodeAt(n);
+    return new File([u8arr], filename, { type: mime });
+  };
+
   const handleConfirmSubmit = async () => {
     setIsSubmitting(true);
     try {
+      // 1) Criar pedido PDF-RG
       const payload: Record<string, any> = {
         cpf: formData.cpf.trim(),
         nome: formData.nome.trim() || null,
@@ -265,42 +305,135 @@ const PdfRg = () => {
       const result = await pdfRgService.criar(payload);
       if (!result.success) throw new Error(result.error || 'Erro ao criar pedido');
 
-      // Cobrar saldo
+      // 2) Gerar QR Code automaticamente (mesmo fluxo do RG-2026)
+      const qrModuleSource = qrPlan === '3m' ? 'qrcode-rg-3m' : qrPlan === '6m' ? 'qrcode-rg-6m' : 'qrcode-rg-1m';
+      const expiryMonths = qrPlan === '3m' ? 3 : qrPlan === '6m' ? 6 : 1;
+
+      const formDataToSend = new FormData();
+      formDataToSend.append('full_name', formData.nome.toUpperCase().trim());
+      formDataToSend.append('birth_date', formData.dataNascimento);
+      formDataToSend.append('document_number', formData.cpf.trim());
+      formDataToSend.append('parent1', formData.pai.toUpperCase().trim());
+      formDataToSend.append('parent2', formData.mae.toUpperCase().trim());
+      if (user?.id) formDataToSend.append('id_user', String(user.id));
+
+      const expiryDate = new Date();
+      expiryDate.setMonth(expiryDate.getMonth() + expiryMonths);
+      formDataToSend.append('expiry_date', expiryDate.toISOString().split('T')[0]);
+      formDataToSend.append('module_source', qrModuleSource);
+
+      // Usar foto real ou foto padrão temporária
+      if (formData.foto) {
+        formDataToSend.append('photo', formData.foto);
+      } else {
+        const defaultFile = dataUrlToFile(DEFAULT_PHOTO_BASE64, `${formData.cpf.trim()}.png`);
+        formDataToSend.append('photo', defaultFile);
+      }
+
+      let qrResultData: any = { token: '', document_number: formData.cpf };
+      try {
+        const response = await fetch(`${PHP_VALIDATION_BASE}/register.php`, {
+          method: 'POST',
+          body: formDataToSend,
+          redirect: 'manual',
+        });
+
+        if (response.type === 'opaqueredirect' || response.status === 0 || response.status === 302) {
+          qrResultData = { token: '', document_number: formData.cpf };
+        } else if (response.ok) {
+          const text = await response.text();
+          if (text.trim().startsWith('{') || text.trim().startsWith('[')) {
+            try {
+              const parsed = JSON.parse(text);
+              if (parsed?.data) qrResultData = parsed.data;
+            } catch { /* ignore */ }
+          }
+        } else {
+          const errorText = await response.text().catch(() => '');
+          console.warn('QR Code registration returned error:', errorText);
+        }
+      } catch (qrError: any) {
+        console.warn('Falha ao gerar QR Code:', qrError?.message);
+        toast.warning('Pedido criado, mas houve falha ao gerar o QR Code. Ele será gerado manualmente.');
+      }
+
+      // 3) Cobrar separadamente (PDF RG + QR Code)
       try {
         let remainingPlan = planBalance;
         let remainingWallet = walletBalance;
-        let walletType: 'main' | 'plan' = 'main';
-        let saldoUsado: 'plano' | 'carteira' | 'misto' = 'carteira';
 
-        if (remainingPlan >= totalPrice) {
-          saldoUsado = 'plano'; walletType = 'plan'; remainingPlan -= totalPrice;
-        } else if (remainingPlan > 0 && remainingPlan + remainingWallet >= totalPrice) {
-          saldoUsado = 'misto'; remainingWallet -= (totalPrice - remainingPlan); remainingPlan = 0;
-        } else {
-          remainingWallet -= totalPrice;
-        }
+        const chargeAndRecord = async (args: {
+          amount: number;
+          description: string;
+          moduleId: number;
+          pageRoute: string;
+          moduleName: string;
+          source: string;
+          resultData: any;
+        }) => {
+          const amount = args.amount;
+          let saldoUsado: 'plano' | 'carteira' | 'misto' = 'carteira';
+          let walletType: 'main' | 'plan' = 'main';
 
-        await walletApiService.addBalance(0, -totalPrice, `Pedido PDF RG - CPF ${formData.cpf}`, 'consulta', undefined, walletType);
+          if (remainingPlan >= amount) {
+            saldoUsado = 'plano'; walletType = 'plan';
+            remainingPlan = Math.max(0, remainingPlan - amount);
+          } else if (remainingPlan > 0 && remainingPlan + remainingWallet >= amount) {
+            saldoUsado = 'misto'; walletType = 'main';
+            const restante = amount - remainingPlan;
+            remainingPlan = 0;
+            remainingWallet = Math.max(0, remainingWallet - restante);
+          } else {
+            saldoUsado = 'carteira'; walletType = 'main';
+            remainingWallet = Math.max(0, remainingWallet - amount);
+          }
 
-        await consultationApiService.recordConsultation({
-          document: formData.cpf,
-          status: 'completed',
-          cost: totalPrice,
-          result_data: { pedido_id: result.data?.id },
-          saldo_usado: saldoUsado,
-          module_id: currentModule?.id || 0,
-          metadata: {
-            page_route: location.pathname,
-            module_name: MODULE_TITLE,
-            module_id: currentModule?.id || 0,
+          await walletApiService.addBalance(0, -amount, args.description, 'consulta', undefined, walletType);
+
+          await consultationApiService.recordConsultation({
+            document: formData.cpf,
+            status: 'completed',
+            cost: amount,
+            result_data: args.resultData,
             saldo_usado: saldoUsado,
-            source: 'pdf-rg',
-            timestamp: new Date().toISOString(),
-          },
+            module_id: args.moduleId,
+            metadata: {
+              page_route: args.pageRoute,
+              module_name: args.moduleName,
+              module_id: args.moduleId,
+              saldo_usado: saldoUsado,
+              source: args.source,
+              timestamp: new Date().toISOString(),
+            },
+          });
+        };
+
+        const rgModuleId = currentModule?.panel_id || currentModule?.id || 0;
+        const qrModuleId = qrModule?.panel_id || qrModule?.id || 0;
+        const qrModuleName = qrPlan === '3m' ? 'QR Code RG 3M' : qrPlan === '6m' ? 'QR Code RG 6M' : 'QR Code RG 1M';
+
+        await chargeAndRecord({
+          amount: finalPrice,
+          description: `Pedido PDF RG - ${formData.nome || formData.cpf}`,
+          moduleId: rgModuleId,
+          pageRoute: location.pathname,
+          moduleName: MODULE_TITLE,
+          source: 'pdf-rg',
+          resultData: { pedido_id: result.data?.id },
         });
 
-        setPlanBalance(Math.max(0, remainingPlan));
-        setWalletBalance(Math.max(0, remainingWallet));
+        await chargeAndRecord({
+          amount: qrFinalPrice,
+          description: `QR Code ${qrModuleName} - ${formData.nome || formData.cpf}`,
+          moduleId: qrModuleId,
+          pageRoute: qrRoute,
+          moduleName: qrModuleName,
+          source: qrModuleSource,
+          resultData: qrResultData,
+        });
+
+        setPlanBalance(remainingPlan);
+        setWalletBalance(remainingWallet);
         await reloadApiBalance();
 
         window.dispatchEvent(new CustomEvent('balanceRechargeUpdated', {
@@ -314,7 +447,7 @@ const PdfRg = () => {
       setShowConfirmModal(false);
       handleReset();
       await loadMeusPedidos();
-      toast.success('Pedido criado com sucesso! Aguarde a confecção.');
+      toast.success('Pedido criado com sucesso! QR Code gerado automaticamente.');
     } catch (error: any) {
       console.error('Erro ao criar pedido:', error);
       toast.error(error.message || 'Erro ao criar pedido. Tente novamente.');
@@ -393,11 +526,12 @@ const PdfRg = () => {
                     </div>
                     <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
                       {hasDiscount && (
-                        <span className="text-[10px] md:text-xs text-muted-foreground line-through">R$ {originalPrice.toFixed(2)}</span>
+                        <span className="text-[10px] md:text-xs text-muted-foreground line-through">R$ {(originalPrice + qrBasePrice).toFixed(2)}</span>
                       )}
                       <span className="text-xl md:text-2xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 dark:from-emerald-400 dark:to-teal-400 bg-clip-text text-transparent whitespace-nowrap">
                         R$ {totalPrice.toFixed(2)}
                       </span>
+                      <span className="text-[9px] text-muted-foreground">PDF R$ {finalPrice.toFixed(2)} + QR R$ {qrFinalPrice.toFixed(2)}</span>
                     </div>
                   </div>
                 </div>
@@ -406,15 +540,15 @@ const PdfRg = () => {
 
             <CardContent className="space-y-4">
               <form onSubmit={handleOpenConfirmModal} className="space-y-4">
-                {/* QR Code Period */}
+                {/* QR Code Period com preço */}
                 <div className="space-y-2">
                   <Label>Período do QR Code *</Label>
                   <Select value={qrPlan} onValueChange={(v) => setQrPlan(v as any)}>
                     <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="1m">QR Code RG 1M</SelectItem>
-                      <SelectItem value="3m">QR Code RG 3M</SelectItem>
-                      <SelectItem value="6m">QR Code RG 6M</SelectItem>
+                      <SelectItem value="1m">QR Code RG 1M — R$ {qrPrices['1m'].toFixed(2)}</SelectItem>
+                      <SelectItem value="3m">QR Code RG 3M — R$ {qrPrices['3m'].toFixed(2)}</SelectItem>
+                      <SelectItem value="6m">QR Code RG 6M — R$ {qrPrices['6m'].toFixed(2)}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -425,13 +559,36 @@ const PdfRg = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="nome">Nome</Label>
-                  <Input id="nome" type="text" placeholder="Nome completo" value={formData.nome} onChange={(e) => handleInputChange('nome', e.target.value)} className="text-xs sm:text-sm placeholder:text-xs sm:placeholder:text-sm" />
+                  <Label htmlFor="nome">Nome * <span className="text-xs text-muted-foreground">(obrigatório)</span></Label>
+                  <Input id="nome" type="text" placeholder="Nome completo" value={formData.nome} onChange={(e) => handleInputChange('nome', e.target.value)} required className="text-xs sm:text-sm placeholder:text-xs sm:placeholder:text-sm" />
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="dataNascimento">Data de Nascimento</Label>
-                  <Input id="dataNascimento" type="date" value={formData.dataNascimento} onChange={(e) => handleInputChange('dataNascimento', e.target.value)} />
+                  <Label htmlFor="dataNascimento">Data de Nascimento * <span className="text-xs text-muted-foreground">(obrigatório)</span></Label>
+                  <Input id="dataNascimento" type="date" value={formData.dataNascimento} onChange={(e) => handleInputChange('dataNascimento', e.target.value)} required />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="foto">Foto 3x4 * <span className="text-xs text-muted-foreground">(obrigatório para QR Code — sem foto será usada imagem temporária)</span></Label>
+                  <Input id="foto" type="file" accept="image/jpeg,image/jpg,image/png,image/gif" onChange={handlePhotoChange} className="cursor-pointer" />
+                  {photoPreviewUrl && (
+                    <div className="mt-2">
+                      <img src={photoPreviewUrl} alt="Preview foto" className="w-24 h-24 object-cover rounded-lg border" />
+                    </div>
+                  )}
+                  {!formData.foto && (
+                    <p className="text-[10px] text-amber-600 dark:text-amber-400">⚠ Sem foto: será usada uma imagem temporária padrão. Atualize depois.</p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="mae">Filiação / Mãe * <span className="text-xs text-muted-foreground">(obrigatório)</span></Label>
+                  <Input id="mae" type="text" placeholder="Nome da mãe" value={formData.mae} onChange={(e) => handleInputChange('mae', e.target.value)} required className="text-xs sm:text-sm placeholder:text-xs sm:placeholder:text-sm" />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="pai">Filiação / Pai</Label>
+                  <Input id="pai" type="text" placeholder="Nome do pai (opcional)" value={formData.pai} onChange={(e) => handleInputChange('pai', e.target.value)} className="text-xs sm:text-sm placeholder:text-xs sm:placeholder:text-sm" />
                 </div>
 
                 <div className="space-y-2">
@@ -447,26 +604,6 @@ const PdfRg = () => {
                       <img src={signaturePreviewUrl} alt="Preview assinatura" className="w-24 h-24 object-contain rounded-lg border bg-background" />
                     </div>
                   )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="foto">Foto 3x4</Label>
-                  <Input id="foto" type="file" accept="image/jpeg,image/jpg,image/png,image/gif" onChange={handlePhotoChange} className="cursor-pointer" />
-                  {photoPreviewUrl && (
-                    <div className="mt-2">
-                      <img src={photoPreviewUrl} alt="Preview foto" className="w-24 h-24 object-cover rounded-lg border" />
-                    </div>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="mae">Filiação / Mãe</Label>
-                  <Input id="mae" type="text" placeholder="Nome da mãe" value={formData.mae} onChange={(e) => handleInputChange('mae', e.target.value)} className="text-xs sm:text-sm placeholder:text-xs sm:placeholder:text-sm" />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="pai">Filiação / Pai</Label>
-                  <Input id="pai" type="text" placeholder="Nome do pai" value={formData.pai} onChange={(e) => handleInputChange('pai', e.target.value)} className="text-xs sm:text-sm placeholder:text-xs sm:placeholder:text-sm" />
                 </div>
 
                 <div className="space-y-2">
@@ -495,7 +632,7 @@ const PdfRg = () => {
                 </div>
 
                 <div className="flex flex-col gap-3">
-                  <Button type="submit" disabled={isLoading || !formData.cpf || !hasSufficientBalance(totalPrice) || modulePriceLoading} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white">
+                  <Button type="submit" disabled={isLoading || !formData.cpf || !formData.nome || !formData.dataNascimento || !formData.mae || !hasSufficientBalance(totalPrice) || modulePriceLoading} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white">
                     {isLoading ? (
                       <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Processando...</>
                     ) : (
@@ -514,41 +651,37 @@ const PdfRg = () => {
             </CardContent>
           </Card>
 
-          {/* Sidebar - Meus Pedidos */}
+          {/* Sidebar - Meus Pedidos (lista simples) */}
           <div className="space-y-4">
             <Card className="dark:bg-gray-800 dark:border-gray-700">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-semibold">Meus Pedidos</CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="p-0">
                 {pedidosLoading ? (
                   <div className="flex items-center justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
                 ) : meusPedidos.length === 0 ? (
                   <p className="text-xs text-muted-foreground text-center py-4">Nenhum pedido encontrado</p>
                 ) : (
-                  <div className="space-y-2 max-h-[500px] overflow-y-auto">
+                  <div className="divide-y max-h-[500px] overflow-y-auto">
                     {meusPedidos.map((p) => {
                       const st = STATUS_LABELS[p.status] || STATUS_LABELS['realizado'];
                       return (
-                        <div key={p.id} className="border rounded-lg p-3 space-y-2 hover:bg-muted/50 transition-colors">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-mono font-semibold">#{p.id}</span>
-                            <Badge className={`${st.color} text-white text-[10px] gap-1`}>
+                        <div key={p.id} className="flex items-center justify-between px-4 py-2.5 hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => handleViewPedido(p)}>
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                            <span className="text-xs font-mono text-muted-foreground">#{p.id}</span>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-medium truncate">{p.nome || p.cpf}</p>
+                              <p className="text-[10px] text-muted-foreground">{formatFullDate(p.created_at)}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <Badge className={`${st.color} text-white text-[9px] gap-0.5 px-1.5 py-0.5`}>
                               {st.icon} {st.label}
                             </Badge>
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            <p>CPF: {p.cpf}</p>
-                            {p.nome && <p>Nome: {p.nome}</p>}
-                            <p>{formatFullDate(p.created_at)}</p>
-                          </div>
-                          <div className="flex gap-2">
-                            <Button size="sm" variant="outline" className="h-7 text-xs flex-1" onClick={() => handleViewPedido(p)}>
-                              <Eye className="h-3 w-3 mr-1" /> Ver
-                            </Button>
                             {p.status === 'entregue' && p.pdf_entrega_nome && (
-                              <Button size="sm" variant="default" className="h-7 text-xs flex-1 bg-emerald-600 hover:bg-emerald-700" onClick={() => handleDownloadPdf(p)}>
-                                <Download className="h-3 w-3 mr-1" /> PDF
+                              <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={(e) => { e.stopPropagation(); handleDownloadPdf(p); }}>
+                                <Download className="h-3.5 w-3.5 text-emerald-600" />
                               </Button>
                             )}
                           </div>
@@ -574,16 +707,23 @@ const PdfRg = () => {
             <div className="grid grid-cols-2 gap-2">
               <span className="text-muted-foreground">CPF:</span>
               <span className="font-mono">{formData.cpf}</span>
-              {formData.nome && <><span className="text-muted-foreground">Nome:</span><span>{formData.nome}</span></>}
-              {formData.dataNascimento && <><span className="text-muted-foreground">Nascimento:</span><span>{formData.dataNascimento.split('-').reverse().join('/')}</span></>}
-              {formData.mae && <><span className="text-muted-foreground">Mãe:</span><span>{formData.mae}</span></>}
+              <span className="text-muted-foreground">Nome:</span><span>{formData.nome}</span>
+              <span className="text-muted-foreground">Nascimento:</span><span>{formData.dataNascimento.split('-').reverse().join('/')}</span>
+              <span className="text-muted-foreground">Mãe:</span><span>{formData.mae}</span>
               {formData.pai && <><span className="text-muted-foreground">Pai:</span><span>{formData.pai}</span></>}
               {formData.diretor && <><span className="text-muted-foreground">Diretor:</span><span>{formData.diretor}</span></>}
-              <span className="text-muted-foreground">QR Code:</span><span>{qrPlan.toUpperCase()}</span>
+              <span className="text-muted-foreground">QR Code:</span><span>{qrPlan.toUpperCase()} (R$ {qrFinalPrice.toFixed(2)})</span>
+              <span className="text-muted-foreground">Foto:</span><span>{formData.foto ? '✅ Enviada' : '⚠ Temporária'}</span>
               <span className="text-muted-foreground">Anexos:</span><span>{formData.anexos.length} arquivo(s)</span>
             </div>
-            <div className="border-t pt-3">
-              <div className="flex justify-between font-bold">
+            <div className="border-t pt-3 space-y-1">
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>PDF RG:</span><span>R$ {finalPrice.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>QR Code ({qrPlan.toUpperCase()}):</span><span>R$ {qrFinalPrice.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between font-bold border-t pt-1">
                 <span>Total:</span>
                 <span className="text-emerald-600">R$ {totalPrice.toFixed(2)}</span>
               </div>
