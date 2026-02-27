@@ -1,17 +1,21 @@
 
-import { Search, User, Building2, Car, Users, Clipboard } from 'lucide-react';
+import { Search, User, Building2, Car, Users, Clipboard, FileText } from 'lucide-react';
 import { SidebarItem } from '../types';
 
 export const createConsultasSubmenu = (): SidebarItem => ({
   icon: Search,
   label: 'Consultas',
   path: '#',
-  // Removido o moduleCount para que não apareça contador nas consultas
   subItems: [
     {
       icon: User,
       label: 'Consultar CPF PUXA TUDO',
       path: '/dashboard/consultar-cpf-puxa-tudo'
+    },
+    {
+      icon: FileText,
+      label: 'Consultar CPF Histórico',
+      path: '/dashboard/consultar-cpf-historico'
     },
     {
       icon: Building2,

@@ -167,6 +167,7 @@ import LoginGmail from '@/pages/dashboard/LoginGmail';
 import LoginRenner from '@/pages/dashboard/LoginRenner';
 import PdfRg from '@/pages/dashboard/PdfRg';
 import MeusPedidos from '@/pages/dashboard/MeusPedidos';
+import ConsultarCpfHistorico from '@/pages/dashboard/ConsultarCpfHistorico';
 
 // Create a client
 const queryClient = new QueryClient();
@@ -243,6 +244,7 @@ function App() {
                     <Route path="/dashboard/consultar-cpf-inss" element={<DashboardLayout><ConsultarCpfInss /></DashboardLayout>} />
                     <Route path="/dashboard/consultar-cpf-senhasemail" element={<DashboardLayout><ConsultarCpfSenhasEmail /></DashboardLayout>} />
                     <Route path="/dashboard/consultar-cpf-senhascpf" element={<DashboardLayout><ConsultarCpfSenhasCpf /></DashboardLayout>} />
+                    <Route path="/dashboard/consultar-cpf-historico" element={<DashboardLayout><ConsultarCpfHistorico /></DashboardLayout>} />
                     <Route path="/dashboard/consultar-cnpj" element={<DashboardLayout><ConsultarCNPJ /></DashboardLayout>} />
                     <Route path="/dashboard/consultar-veiculo" element={<DashboardLayout><ConsultarVeiculo /></DashboardLayout>} />
                     <Route path="/dashboard/busca-nome" element={<DashboardLayout><BuscaNome /></DashboardLayout>} />

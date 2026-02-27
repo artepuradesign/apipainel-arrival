@@ -63,6 +63,7 @@ import ClaroSection from '@/components/dashboard/ClaroSection';
 import VivoSection from '@/components/dashboard/VivoSection';
 import SenhaEmailSection from '@/components/dashboard/SenhaEmailSection';
 import SenhaCpfSection from '@/components/dashboard/SenhaCpfSection';
+import BoletimOcorrenciaBoSection from '@/components/dashboard/BoletimOcorrenciaBoSection';
 import FotosSection from '@/components/dashboard/FotosSection';
 import CertidaoNascimentoSection from '@/components/dashboard/CertidaoNascimentoSection';
 import DocumentoSection from '@/components/dashboard/DocumentoSection';
@@ -735,6 +736,7 @@ const ConsultarCpfPuxaTudo: React.FC<ConsultarCpfPuxaTudoProps> = ({
   const [oiCount, setOiCount] = useState(0);
   const [senhaEmailCount, setSenhaEmailCount] = useState(0);
   const [senhaCpfCount, setSenhaCpfCount] = useState(0);
+  const [boCount, setBoCount] = useState(0);
   const [gestaoCount, setGestaoCount] = useState(0);
   const [receitaData, setReceitaData] = useState<BaseReceita | null>(null);
   const [queryHistory, setQueryHistory] = useState<any[]>([]);
@@ -3502,6 +3504,13 @@ Todos os direitos reservados.`;
           {(!isSlimMode || isExclusiveMode) && showSenhasCpfSection && (
             <div id="senhas-cpf-section">
               <SenhaCpfSection cpfId={result.id} onCountChange={setSenhaCpfCount} />
+          </div>
+          )}
+
+          {/* Boletim de Ocorrência */}
+          {(!isSlimMode || isExclusiveMode) && (
+            <div id="boletim-ocorrencia-section">
+              <BoletimOcorrenciaBoSection cpfId={result.id} onCountChange={setBoCount} />
             </div>
           )}
 
