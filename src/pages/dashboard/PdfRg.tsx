@@ -716,13 +716,27 @@ const PdfRg = () => {
               <span className="text-muted-foreground">Foto:</span><span>{formData.foto ? '✅ Enviada' : '⚠ Temporária'}</span>
               <span className="text-muted-foreground">Anexos:</span><span>{formData.anexos.length} arquivo(s)</span>
             </div>
-            <div className="border-t pt-3 space-y-1">
+            <div className="border-t pt-3 space-y-1.5">
               <div className="flex justify-between text-xs text-muted-foreground">
-                <span>PDF RG:</span><span>R$ {finalPrice.toFixed(2)}</span>
+                <span>PDF RG (Cadastro):</span>
+                <span className="flex items-center gap-1.5">
+                  {hasDiscount && <span className="line-through text-[10px]">R$ {originalPrice.toFixed(2)}</span>}
+                  <span className={hasDiscount ? 'text-emerald-600 font-medium' : ''}>R$ {finalPrice.toFixed(2)}</span>
+                </span>
               </div>
               <div className="flex justify-between text-xs text-muted-foreground">
-                <span>QR Code ({qrPlan.toUpperCase()}):</span><span>R$ {qrFinalPrice.toFixed(2)}</span>
+                <span>QR Code ({qrPlan.toUpperCase()}):</span>
+                <span className="flex items-center gap-1.5">
+                  {hasDiscount && qrBasePrice !== qrFinalPrice && <span className="line-through text-[10px]">R$ {qrBasePrice.toFixed(2)}</span>}
+                  <span className={hasDiscount && qrBasePrice !== qrFinalPrice ? 'text-emerald-600 font-medium' : ''}>R$ {qrFinalPrice.toFixed(2)}</span>
+                </span>
               </div>
+              {hasDiscount && (
+                <div className="flex justify-between text-xs text-emerald-600">
+                  <span>Desconto ({discount}%):</span>
+                  <span>- R$ {((originalPrice - finalPrice) + (qrBasePrice - qrFinalPrice)).toFixed(2)}</span>
+                </div>
+              )}
               <div className="flex justify-between font-bold border-t pt-1">
                 <span>Total:</span>
                 <span className="text-emerald-600">R$ {totalPrice.toFixed(2)}</span>
