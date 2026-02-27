@@ -4,7 +4,7 @@ import ConsultarCpfPuxaTudo from './ConsultarCpfPuxaTudo';
 const ConsultarCpfHistorico: React.FC = () => {
   return (
     <ConsultarCpfPuxaTudo
-      moduleId={83}
+      moduleId={166}
       source="consultar-cpf-historico"
       fallbackPricePath="/dashboard/consultar-cpf-historico"
     />
